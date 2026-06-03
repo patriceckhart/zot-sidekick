@@ -140,8 +140,8 @@ the latest Xcode) on every push and on manual dispatch. It:
 - ad-hoc signs the app (including the embedded zot binary),
 - packages a `Zot-Sidekick-<version>.dmg` containing the app and an
   `Applications` symlink for drag-and-drop install,
-- uploads the DMG as a build artifact, and publishes a GitHub Release on
-  tag pushes (`vX.Y.Z`).
+- uploads the DMG as a build artifact, and publishes a GitHub Release
+  (tag `vX.Y.Z`, marked as latest) on every push to `main`.
 
 The builds are unsigned/ad-hoc, so on first launch users may need to
 right-click the app and choose Open (or allow it in System Settings) until a
