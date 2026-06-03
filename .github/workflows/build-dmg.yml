@@ -82,12 +82,11 @@ jobs:
         run: |
           set -euo pipefail
           APP_PATH="${{ steps.app.outputs.app_path }}"
-          if [ ! -f "$APP_PATH/Contents/Resources/Icon.icns" ]; then
-            echo "App icon (Icon.icns) is missing from the build." >&2
-            echo "The runner's Xcode may be too old for Icon Composer (.icon)." >&2
+          if [ ! -f "$APP_PATH/Contents/Resources/AppIcon.icns" ]; then
+            echo "App icon (AppIcon.icns) is missing from the build." >&2
             exit 1
           fi
-          echo "App icon present: $APP_PATH/Contents/Resources/Icon.icns"
+          echo "App icon present: $APP_PATH/Contents/Resources/AppIcon.icns"
 
       - name: Ad-hoc sign (so Gatekeeper does not flag a broken signature)
         run: |

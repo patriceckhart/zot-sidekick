@@ -15,8 +15,8 @@ A macOS menu bar app that provides quick access to zot from anywhere on your sys
 
 ## Requirements
 
-- macOS 14.0 or later
-- Xcode 26 or later (the app icon uses Icon Composer, which needs Xcode 26+)
+- macOS 26 or later
+- A recent Xcode (the project targets the macOS 26 SDK)
 - An Anthropic, OpenAI, etc. API key, or a supported subscription login
 
 > **Note on subscription login.** The OAuth client IDs used are the ones published in Anthropic's Claude Code CLI, OpenAI's Codex CLI, and the Kimi Code CLI device-code flow. Reusing them from a third-party tool may be against their terms of service and may be revoked at any time. Use it at your own risk; the API-key flow is the safe default.
@@ -129,13 +129,11 @@ The app uses:
 - ScreenCaptureKit for screenshot functionality
 - Process for spawning the bundled zot binary
 - NWListener loopback servers for OAuth callbacks
-- Icon Composer (`Icon.icon`) for the app icon
 
 ## Releases (GitHub Actions)
 
 `.github/workflows/build-dmg.yml` builds the app on `macos-latest` (pinned to
-the latest Xcode for Icon Composer support) on every push and on manual
-dispatch. It:
+the latest Xcode) on every push and on manual dispatch. It:
 
 - auto-versions each build from the run number with rollover
   (`0.0.1 ... 0.0.99 -> 0.1.0 ... 0.99.99 -> 1.0.0 ...`),
