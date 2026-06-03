@@ -78,15 +78,28 @@ jobs:
           echo "Found: $APP_PATH"
           echo "app_path=$APP_PATH" >> "$GITHUB_OUTPUT"
 
-      - name: Verify app icon is present
+      - name: Install Liquid Glass icon (prebuilt Assets.car)
         run: |
           set -euo pipefail
           APP_PATH="${{ steps.app.outputs.app_path }}"
-          if [ ! -f "$APP_PATH/Contents/Resources/AppIcon.icns" ]; then
-            echo "App icon (AppIcon.icns) is missing from the build." >&2
-            exit 1
+          RES="$APP_PATH/Contents/Resources"
+          PLIST="$APP_PATH/Contents/Info.plist"
+
+          # The Liquid Glass .icon is compiled on a Mac with the right Xcode
+          # (see prebuilt-icon/, produced by scripts/compile-icon.sh). The CI
+          # runner's actool can crash on .icon, so we inject the prebuilt
+          # asset catalog instead of recompiling it here.
+          if [ -f prebuilt-icon/Assets.car ]; then
+            cp prebuilt-icon/Assets.car "$RES/Assets.car"
+            [ -f prebuilt-icon/Icon.icns ] && cp prebuilt-icon/Icon.icns "$RES/Icon.icns"
+            /usr/libexec/PlistBuddy -c "Set :CFBundleIconName Icon" "$PLIST" 2>/dev/null \
+              || /usr/libexec/PlistBuddy -c "Add :CFBundleIconName string Icon" "$PLIST"
+            /usr/libexec/PlistBuddy -c "Set :CFBundleIconFile Icon" "$PLIST" 2>/dev/null \
+              || /usr/libexec/PlistBuddy -c "Add :CFBundleIconFile string Icon" "$PLIST"
+            echo "Installed Liquid Glass icon from prebuilt-icon/Assets.car"
+          else
+            echo "prebuilt-icon/Assets.car not found; keeping the classic AppIcon." >&2
           fi
-          echo "App icon present: $APP_PATH/Contents/Resources/AppIcon.icns"
 
       - name: Ad-hoc sign (so Gatekeeper does not flag a broken signature)
         run: |

@@ -129,6 +129,18 @@ The app uses:
 - ScreenCaptureKit for screenshot functionality
 - Process for spawning the bundled zot binary
 - NWListener loopback servers for OAuth callbacks
+- Icon Composer (`Icon.icon`) for the Liquid Glass app icon, with a classic
+  `AppIcon.appiconset` as the fallback for older macOS
+
+### App icon (Liquid Glass)
+
+The app icon is an Icon Composer bundle (`Icon.icon`). Because the CI runner's
+`actool` can crash compiling `.icon`, the catalog is precompiled on a Mac with
+a recent Xcode into `prebuilt-icon/Assets.car` (plus `Icon.icns`) via
+`scripts/compile-icon.sh`, committed, and injected into the built app by the
+workflow. Re-run that script and commit `prebuilt-icon/` whenever the icon or
+asset catalog changes. The classic `AppIcon.appiconset` remains as a fallback
+for pre-26 macOS.
 
 ## Releases (GitHub Actions)
 

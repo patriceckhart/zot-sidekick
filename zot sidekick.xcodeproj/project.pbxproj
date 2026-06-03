@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXFileReference section */
-		43A0B20F2FD096E800D8F50D /* zot sidekick.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "zot sidekick.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		43A0B20F2FD096E800D8F50D /* zot sidekick.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; name = "zot sidekick.app"; path = "Zot Sidekick.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
