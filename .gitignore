@@ -1,0 +1,10 @@
+# Xcode / build artifacts
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+.DS_Store
+
+# DMG staging / output
+dmg-staging/
+*.dmg

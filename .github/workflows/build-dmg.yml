@@ -1,0 +1,139 @@
+name: Build macOS DMG
+
+on:
+  push:
+    branches: ["**"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    env:
+      SCHEME: "zot sidekick"
+      APP_NAME: "zot sidekick"
+      CONFIGURATION: Release
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select latest Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          # Icon Composer (.icon) requires Xcode 26 or newer; pin to latest
+          # so actool understands the Icon.icon bundle on CI.
+          xcode-version: latest
+
+      - name: Show versions
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: Compute version
+        id: version
+        run: |
+          set -euo pipefail
+          # Auto-increment per build from the run number, with rollover:
+          #   0.0.1 .. 0.0.99, then 0.1.0 .. 0.1.99, then 0.2.0 ...
+          #   ... 0.99.99, then 1.0.0, 1.0.1, ...
+          # 100 patch values (0..99) per minor, 100 minors per major.
+          # Run numbers start at 1, so the first build is 0.0.1.
+          N=${GITHUB_RUN_NUMBER}
+          MAJOR=$((N / 10000))
+          REM=$((N % 10000))
+          MINOR=$((REM / 100))
+          PATCH=$((REM % 100))
+          VERSION="${MAJOR}.${MINOR}.${PATCH}"
+          echo "Computed version: $VERSION (run #$N)"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Build app (unsigned)
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project "zot sidekick.xcodeproj" \
+            -scheme "$SCHEME" \
+            -configuration "$CONFIGURATION" \
+            -derivedDataPath build \
+            MARKETING_VERSION="${{ steps.version.outputs.version }}" \
+            CURRENT_PROJECT_VERSION="${GITHUB_RUN_NUMBER}" \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            clean build
+
+      - name: Locate built .app
+        id: app
+        run: |
+          set -euo pipefail
+          APP_PATH=$(find build/Build/Products/$CONFIGURATION -maxdepth 1 -name "*.app" -print -quit)
+          if [ -z "$APP_PATH" ]; then
+            echo "No .app found" >&2
+            exit 1
+          fi
+          echo "Found: $APP_PATH"
+          echo "app_path=$APP_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Verify app icon is present
+        run: |
+          set -euo pipefail
+          APP_PATH="${{ steps.app.outputs.app_path }}"
+          if [ ! -f "$APP_PATH/Contents/Resources/Icon.icns" ]; then
+            echo "App icon (Icon.icns) is missing from the build." >&2
+            echo "The runner's Xcode may be too old for Icon Composer (.icon)." >&2
+            exit 1
+          fi
+          echo "App icon present: $APP_PATH/Contents/Resources/Icon.icns"
+
+      - name: Ad-hoc sign (so Gatekeeper does not flag a broken signature)
+        run: |
+          set -euo pipefail
+          APP_PATH="${{ steps.app.outputs.app_path }}"
+          # Deep ad-hoc sign, including the embedded zot binary.
+          codesign --force --deep --sign - "$APP_PATH"
+          codesign --verify --deep --verbose=2 "$APP_PATH" || true
+
+      - name: Create DMG with Applications symlink
+        id: dmg
+        run: |
+          set -euo pipefail
+          APP_PATH="${{ steps.app.outputs.app_path }}"
+          VERSION="${{ steps.version.outputs.version }}"
+          DMG_NAME="Zot-Sidekick-${VERSION}.dmg"
+
+          STAGING="dmg-staging"
+          rm -rf "$STAGING"
+          mkdir -p "$STAGING"
+
+          # Copy the app and add a drag-and-drop /Applications symlink.
+          cp -R "$APP_PATH" "$STAGING/"
+          ln -s /Applications "$STAGING/Applications"
+
+          # Build a compressed DMG from the staging folder.
+          hdiutil create \
+            -volname "Zot Sidekick" \
+            -srcfolder "$STAGING" \
+            -ov \
+            -format UDZO \
+            "$DMG_NAME"
+
+          echo "dmg_name=$DMG_NAME" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Zot-Sidekick-DMG
+          path: ${{ steps.dmg.outputs.dmg_name }}
+          if-no-files-found: error
+
+      # Optional: also publish a GitHub Release on tag pushes (vX.Y.Z).
+      - name: Publish Release (tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.dmg.outputs.dmg_name }}

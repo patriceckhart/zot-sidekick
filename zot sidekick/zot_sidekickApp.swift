@@ -1,17 +1,20 @@
 //
-//  zot_sidekickApp.swift
-//  zot sidekick
+//  Zot_SidekickApp.swift
+//  Zot Sidekick
 //
-//  Created by Patric Eckhart on 03.06.26.
+//  Menu-bar-only AI assistant. Lives in the menu bar.
+//  Long-press Right Option key to summon from anywhere.
 //
 
 import SwiftUI
 
 @main
-struct zot_sidekickApp: App {
+struct Zot_SidekickApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+
     var body: some Scene {
-        WindowGroup {
-            ContentView()
+        Settings {
+            EmptyView()
         }
     }
 }
