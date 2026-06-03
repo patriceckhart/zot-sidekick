@@ -44,14 +44,14 @@ nonisolated struct SavedSession: Identifiable, Codable {
 nonisolated enum SidekickPaths {
     static var appSupport: URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let url = base.appendingPathComponent("Zot Sidekick", isDirectory: true)
+        let url = base.appendingPathComponent("zot sidekick", isDirectory: true)
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }
 
     /// Flat directory holding one JSON file per session. No project subfolders.
     static var sessionsRoot: URL {
-        let url = appSupport.appendingPathComponent("Sessions", isDirectory: true)
+        let url = appSupport.appendingPathComponent("sessions", isDirectory: true)
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }

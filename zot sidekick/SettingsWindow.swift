@@ -20,7 +20,7 @@ struct SettingsView: View {
 
     var body: some View {
         VStack(spacing: 16) {
-            Text("Zot Sidekick Settings")
+            Text("zot sidekick settings")
                 .font(.system(size: 18, weight: .semibold, design: .monospaced))
                 .padding(.top)
 
@@ -46,7 +46,7 @@ struct SettingsView: View {
                         .font(.system(size: 13, design: .monospaced))
                 }
 
-                Section(header: Text("Zot Binary").font(.system(size: 12, design: .monospaced))) {
+                Section(header: Text("zot binary").font(.system(size: 12, design: .monospaced))) {
                     HStack {
                         Text("Bundled version")
                             .font(.system(size: 12, design: .monospaced))

@@ -115,7 +115,7 @@ jobs:
           set -euo pipefail
           APP_PATH="${{ steps.app.outputs.app_path }}"
           VERSION="${{ steps.version.outputs.version }}"
-          DMG_NAME="Zot-Sidekick-${VERSION}.dmg"
+          DMG_NAME="zot-sidekick-${VERSION}.dmg"
 
           STAGING="dmg-staging"
           rm -rf "$STAGING"
@@ -127,7 +127,7 @@ jobs:
 
           # Build a compressed DMG from the staging folder.
           hdiutil create \
-            -volname "Zot Sidekick" \
+            -volname "zot sidekick" \
             -srcfolder "$STAGING" \
             -ov \
             -format UDZO \
@@ -139,7 +139,7 @@ jobs:
       - name: Upload DMG artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Zot-Sidekick-DMG
+          name: zot-sidekick-dmg
           path: ${{ steps.dmg.outputs.dmg_name }}
           if-no-files-found: error
 

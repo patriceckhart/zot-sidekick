@@ -899,7 +899,7 @@ struct InlineSettingsView: View {
 
     private var binarySection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            sectionLabel("Zot Binary")
+            sectionLabel("zot binary")
             HStack(spacing: 8) {
                 Text("Installed")
                     .font(.system(size: 11, design: .monospaced))

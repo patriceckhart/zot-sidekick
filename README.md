@@ -82,7 +82,7 @@ It resets to the default centered position only when you quit and relaunch.
 - Conversations are saved automatically after each reply
 - Click "Sessions" in the panel top bar to browse, search, reload, or delete saved sessions
 - Sessions are stored as flat JSON files in
-  `~/Library/Application Support/Zot Sidekick/Sessions/` (no project folders)
+  `~/Library/Application Support/zot sidekick/sessions/` (no project folders)
 - Click "+ New" to start a fresh conversation
 
 ### Settings
