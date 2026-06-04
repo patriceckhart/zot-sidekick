@@ -360,19 +360,38 @@ final class AppState {
     // MARK: - Paste into active app
 
     func pasteResultIntoApp() {
-        guard let lastAssistant = messages.last(where: { $0.role == .assistant }) else { return }
+        guard let lastAssistant = messages.last(where: { $0.role == .assistant }) else {
+            print("[paste] no assistant message to paste")
+            return
+        }
         let text = lastAssistant.content
-        guard !text.isEmpty else { return }
+        guard !text.isEmpty else {
+            print("[paste] assistant message is empty")
+            return
+        }
 
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.setString(text, forType: .string)
+        print("[paste] copied \(text.count) chars to pasteboard")
 
-        guard let app = previousApp else { return }
+        let trusted = AXIsProcessTrusted()
+        print("[paste] AXIsProcessTrusted = \(trusted)")
+
+        guard let app = previousApp else {
+            print("[paste] previousApp is nil; cannot target an app")
+            return
+        }
+        print("[paste] target app: \(app.localizedName ?? "?") pid=\(app.processIdentifier)")
+
+        // Resign active so our floating panel stops being the key/active app;
+        // otherwise the target app can never become frontmost and the
+        // synthetic Cmd+V would land on our own (non-editable) panel. The
+        // panel itself stays visible because we only deactivate, not hide.
+        NSApp.deactivate()
 
         // Bring the target app (e.g. the browser) back to the front, then
-        // synthesize Cmd+V once it is actually frontmost. The panel must be
-        // hidden first (the caller does that) so it releases key focus.
+        // synthesize Cmd+V once it is actually frontmost.
         app.activate(options: [.activateAllWindows])
         Self.pasteWhenActive(app: app)
     }
@@ -380,10 +399,12 @@ final class AppState {
     /// Polls until `app` is the frontmost application (or a timeout), then
     /// posts a synthetic Cmd+V into it.
     private static func pasteWhenActive(app: NSRunningApplication, attempt: Int = 0) {
-        let isFront = NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier
-        if isFront || attempt >= 20 {
+        let front = NSWorkspace.shared.frontmostApplication
+        let isFront = front?.processIdentifier == app.processIdentifier
+        if isFront || attempt >= 30 {
+            print("[paste] posting Cmd+V (attempt \(attempt), front=\(front?.localizedName ?? "?"), isFront=\(isFront))")
             // Give the app one more runloop tick to settle its first responder.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
                 postCommandV()
             }
             return
@@ -394,16 +415,23 @@ final class AppState {
         }
     }
 
-    /// Posts a Cmd+V key chord to the system event tap.
+    /// Posts a Cmd+V key chord to the HID event tap (system-wide).
     private static func postCommandV() {
-        let source = CGEventSource(stateID: .combinedSessionState)
         let vKey: CGKeyCode = 0x09
-        guard let keyDown = CGEvent(keyboardEventSource: source, virtualKey: vKey, keyDown: true),
-              let keyUp = CGEvent(keyboardEventSource: source, virtualKey: vKey, keyDown: false) else { return }
+        let cmdDown = CGEvent(keyboardEventSource: nil, virtualKey: 0x37, keyDown: true) // Left Command
+        let cmdUp = CGEvent(keyboardEventSource: nil, virtualKey: 0x37, keyDown: false)
+        guard let keyDown = CGEvent(keyboardEventSource: nil, virtualKey: vKey, keyDown: true),
+              let keyUp = CGEvent(keyboardEventSource: nil, virtualKey: vKey, keyDown: false) else {
+            print("[paste] failed to create CGEvent")
+            return
+        }
         keyDown.flags = .maskCommand
         keyUp.flags = .maskCommand
-        keyDown.post(tap: .cgAnnotatedSessionEventTap)
-        keyUp.post(tap: .cgAnnotatedSessionEventTap)
+        cmdDown?.post(tap: .cghidEventTap)
+        keyDown.post(tap: .cghidEventTap)
+        keyUp.post(tap: .cghidEventTap)
+        cmdUp?.post(tap: .cghidEventTap)
+        print("[paste] Cmd+V posted to HID tap")
     }
 
     // MARK: - Message Handling
