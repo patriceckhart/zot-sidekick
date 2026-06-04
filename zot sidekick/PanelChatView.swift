@@ -238,10 +238,10 @@ struct PanelChatView: View {
                                     NSPasteboard.general.setString(message.content, forType: .string)
                                 },
                                 onPaste: {
-                                    // Hide the panel first so it releases key
-                                    // focus, then activate the target app and
-                                    // paste into it.
-                                    onClose()
+                                    // Keep the panel visible. Activating the
+                                    // target app makes it frontmost so the
+                                    // synthetic Cmd+V lands there; the floating
+                                    // panel stays on screen.
                                     appState.pasteResultIntoApp()
                                 }
                             )
