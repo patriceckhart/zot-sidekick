@@ -101,7 +101,7 @@ final class AppState {
         startBridge()
         updater.refreshInstalledVersion()
         updater.checkForUpdate()
-        appUpdater.checkForUpdate()
+        appUpdater.startPeriodicChecks()
         rebuildModelList()
         refreshAllModels()
         reloadSavedSessions()
@@ -295,7 +295,8 @@ final class AppState {
     /// not saved.
     @discardableResult
     func saveCurrentSession() -> SavedSession? {
-        let realMessages = messages.filter { !$0.content.isEmpty }
+        // Keep tool messages (their content is empty) and any non-empty bubble.
+        let realMessages = messages.filter { $0.role == .tool || !$0.content.isEmpty }
         guard !realMessages.isEmpty else { return nil }
 
         var session = SavedSession()
@@ -416,21 +417,18 @@ final class AppState {
             // The current assistant text turn is done; finalize it.
             finishStreaming()
             let callID = event.id ?? UUID().uuidString
-            let name = event.toolName ?? "tool"
-            let msg = ChatMessage(role: .tool, content: "Running \(name)…", isStreaming: true)
+            var msg = ChatMessage(role: .tool, content: "", isStreaming: true)
+            msg.toolCallID = callID
+            msg.toolName = event.toolName ?? "tool"
+            msg.toolArgs = event.argsJSON
             messages.append(msg)
             toolIndexByCallID[callID] = messages.count - 1
 
         case "tool_result":
             let callID = event.id ?? ""
-            let result = event.content ?? ""
-            let trimmed = result.count > 400 ? String(result.prefix(400)) + "…" : result
             if let idx = toolIndexByCallID[callID], messages.indices.contains(idx) {
-                let name = messages[idx].content
-                    .replacingOccurrences(of: "Running ", with: "")
-                    .replacingOccurrences(of: "…", with: "")
-                let mark = (event.isError ?? false) ? "x" : "ok"
-                messages[idx].content = "[\(mark)] \(name): \(trimmed)"
+                messages[idx].toolResult = event.content ?? ""
+                messages[idx].toolIsError = event.isError
                 messages[idx].isStreaming = false
             }
 
@@ -582,6 +580,13 @@ struct ChatMessage: Identifiable {
     var images: [ImageAttachment] = []
     var isStreaming: Bool = false
     let timestamp = Date()
+
+    // Tool-call fields (role == .tool).
+    var toolCallID: String? = nil
+    var toolName: String? = nil
+    var toolArgs: String? = nil
+    var toolResult: String? = nil
+    var toolIsError: Bool? = nil
 }
 
 enum MessageRole {

@@ -28,6 +28,17 @@ struct ZotEvent {
     var errorText: String? { raw["error"] as? String }
     var isError: Bool? { raw["is_error"] as? Bool }
     var data: [String: Any]? { raw["data"] as? [String: Any] }
+
+    /// Pretty-printed tool-call arguments, if present.
+    var argsJSON: String? {
+        guard let args = raw["args"] else { return nil }
+        if let s = args as? String { return s }
+        if let obj = try? JSONSerialization.data(withJSONObject: args, options: [.prettyPrinted, .sortedKeys]),
+           let s = String(data: obj, encoding: .utf8) {
+            return s
+        }
+        return nil
+    }
 }
 
 final class ZotBridge: @unchecked Sendable {

@@ -84,6 +84,8 @@ final class PanelController: NSObject {
         guard !isVisible else { return }
 
         appState.previousApp = NSWorkspace.shared.frontmostApplication
+        // Re-check for a newer app release each time the panel opens.
+        appState.appUpdater.checkForUpdate()
 
         // Keep the user's dragged/resized frame across hide/show within a
         // session. The default centered position is only applied once, in

@@ -207,23 +207,43 @@ struct PanelChatView: View {
         }
     }
 
+    /// Hide empty, non-streaming assistant/system bubbles (e.g. the
+    /// placeholder created before tool calls). Tool bubbles always show.
+    private var visibleMessages: [ChatMessage] {
+        appState.messages.filter { m in
+            switch m.role {
+            case .tool:
+                return true
+            case .assistant, .system:
+                return m.isStreaming || !m.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !m.images.isEmpty
+            case .user:
+                return true
+            }
+        }
+    }
+
     private var chatArea: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 12) {
-                    ForEach(appState.messages) { message in
-                        MessageBubble(
-                            message: message,
-                            onCopy: {
-                                NSPasteboard.general.clearContents()
-                                NSPasteboard.general.setString(message.content, forType: .string)
-                            },
-                            onPaste: {
-                                appState.pasteResultIntoApp()
-                                onClose()
-                            }
-                        )
-                        .id(message.id)
+                    ForEach(visibleMessages) { message in
+                        if message.role == .tool {
+                            ToolBubble(message: message)
+                                .id(message.id)
+                        } else {
+                            MessageBubble(
+                                message: message,
+                                onCopy: {
+                                    NSPasteboard.general.clearContents()
+                                    NSPasteboard.general.setString(message.content, forType: .string)
+                                },
+                                onPaste: {
+                                    appState.pasteResultIntoApp()
+                                    onClose()
+                                }
+                            )
+                            .id(message.id)
+                        }
                     }
                 }
                 .padding(.horizontal, 16)
@@ -1049,5 +1069,117 @@ struct TypingIndicator: View {
             }
         }
         .onAppear { animating = true }
+    }
+}
+
+// MARK: - Tool Bubble (collapsible read/write/edit/bash preview)
+
+struct ToolBubble: View {
+    let message: ChatMessage
+    @State private var expanded = false
+
+    private var toolName: String { message.toolName ?? "tool" }
+    private var isError: Bool { message.toolIsError == true }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: iconName(for: toolName))
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(isError ? Color.red : Color.cyan)
+                .frame(width: 22, height: 22)
+                .padding(.top, 2)
+
+            VStack(alignment: .leading, spacing: 0) {
+                Button {
+                    expanded.toggle()
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: expanded ? "chevron.down" : "chevron.right")
+                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .foregroundStyle(.white.opacity(0.4))
+                        Text(toolName)
+                            .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(.white.opacity(0.9))
+                        Text(summary)
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(.white.opacity(0.35))
+                            .lineLimit(1)
+                        Spacer(minLength: 8)
+                        if message.isStreaming {
+                            ProgressView().controlSize(.mini).scaleEffect(0.7)
+                        }
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                if expanded {
+                    VStack(alignment: .leading, spacing: 8) {
+                        if let args = message.toolArgs, !args.isEmpty, args != "{}" {
+                            ToolCodeBlock(title: "arguments", text: args)
+                        }
+                        if let result = message.toolResult, !result.isEmpty {
+                            ToolCodeBlock(title: isError ? "error" : "result", text: result)
+                        } else if message.isStreaming {
+                            Text("running…")
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundStyle(.white.opacity(0.4))
+                                .padding(.top, 6)
+                        }
+                    }
+                    .padding(.top, 10)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
+            .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 12))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(isError ? Color.red.opacity(0.35) : Color.cyan.opacity(0.18))
+            )
+
+            Spacer(minLength: 40)
+        }
+    }
+
+    private var summary: String {
+        if message.isStreaming { return "running" }
+        if isError { return "failed" }
+        return "completed"
+    }
+
+    private func iconName(for tool: String) -> String {
+        switch tool {
+        case "read": return "doc.text.magnifyingglass"
+        case "write": return "square.and.pencil"
+        case "edit": return "pencil.line"
+        case "bash": return "terminal"
+        default: return "wrench.and.screwdriver"
+        }
+    }
+}
+
+private struct ToolCodeBlock: View {
+    let title: String
+    let text: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(title.uppercased())
+                .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                .foregroundStyle(.white.opacity(0.35))
+                .tracking(0.5)
+            ScrollView(.horizontal, showsIndicators: true) {
+                Text(text)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .textSelection(.enabled)
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxHeight: 220)
+            .background(Color.black.opacity(0.34), in: RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(.white.opacity(0.07)))
+        }
     }
 }

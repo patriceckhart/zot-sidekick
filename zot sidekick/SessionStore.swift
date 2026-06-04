@@ -19,6 +19,11 @@ nonisolated struct StoredMessage: Codable {
     var isStreaming: Bool
     var images: [StoredImage]
     var date: Date
+    // Tool-call fields (optional for backward compatibility).
+    var toolName: String? = nil
+    var toolArgs: String? = nil
+    var toolResult: String? = nil
+    var toolIsError: Bool? = nil
 }
 
 nonisolated struct StoredImage: Codable {
@@ -120,6 +125,10 @@ extension StoredMessage {
         self.isStreaming = false
         self.images = message.images.map { StoredImage(data: $0.data, mimeType: $0.mimeType, name: $0.name) }
         self.date = message.timestamp
+        self.toolName = message.toolName
+        self.toolArgs = message.toolArgs
+        self.toolResult = message.toolResult
+        self.toolIsError = message.toolIsError
     }
 
     func toChatMessage() -> ChatMessage {
@@ -132,6 +141,11 @@ extension StoredMessage {
             }
         }()
         let imgs = images.map { ImageAttachment(data: $0.data, mimeType: $0.mimeType, name: $0.name) }
-        return ChatMessage(role: r, content: content, images: imgs, isStreaming: false)
+        var msg = ChatMessage(role: r, content: content, images: imgs, isStreaming: false)
+        msg.toolName = toolName
+        msg.toolArgs = toolArgs
+        msg.toolResult = toolResult
+        msg.toolIsError = toolIsError
+        return msg
     }
 }

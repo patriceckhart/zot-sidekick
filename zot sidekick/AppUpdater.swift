@@ -22,12 +22,24 @@ final class AppUpdater {
     private(set) var isChecking = false
 
     private let repo = "patriceckhart/zot-sidekick"
+    private var timer: Timer?
 
     private static func readCurrentVersion() -> String {
         (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "0.0.0"
     }
 
+    /// Checks now and then re-checks every 30 minutes so a release published
+    /// while the app is running is picked up without a relaunch.
+    func startPeriodicChecks() {
+        checkForUpdate()
+        timer?.invalidate()
+        timer = Timer.scheduledTimer(withTimeInterval: 1800, repeats: true) { [weak self] _ in
+            self?.checkForUpdate()
+        }
+    }
+
     /// Queries the GitHub releases API for the latest zot-sidekick release.
+    /// Force a re-check even if one ran recently (e.g. when the panel opens).
     func checkForUpdate() {
         guard !isChecking else { return }
         isChecking = true
