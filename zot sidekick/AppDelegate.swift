@@ -52,16 +52,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // MARK: - Permissions
 
     private func requestPermissions() {
-        // Only prompt for Accessibility if it is not already granted. The
-        // HotkeyMonitor watches the trust state and installs the tap once it
-        // flips, so we never need to nag a user who has already allowed it.
-        if !AXIsProcessTrusted() {
-            let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
-            _ = AXIsProcessTrustedWithOptions(options)
-            print("[permissions] Accessibility: prompting")
-        } else {
-            print("[permissions] Accessibility: already granted")
-        }
+        // Never show the system Accessibility prompt on launch. If access is
+        // missing, the menu exposes a manual "Open Accessibility Settings"
+        // action. This avoids macOS nagging on every app start when TCC is in
+        // a bad/stale state or multiple builds exist on disk.
+        print("[permissions] Accessibility trusted: \(AXIsProcessTrusted())")
 
         // Do not probe Screen Recording on launch (that triggers its own
         // system prompt every time). The screenshot helper requests it
@@ -162,6 +157,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let menu = NSMenu()
         menu.delegate = self
 
+        if !AXIsProcessTrusted() {
+            menu.addItem(withTitle: "Open Accessibility Settings", action: #selector(openAccessibilitySettings), keyEquivalent: "")
+                .target = self
+            menu.addItem(.separator())
+        }
+
         menu.addItem(withTitle: "Quit", action: #selector(quitApp), keyEquivalent: "")
             .target = self
 
@@ -171,6 +172,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func menuDidClose(_ menu: NSMenu) {
         statusItem.menu = nil
+    }
+
+    @objc private func openAccessibilitySettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+            NSWorkspace.shared.open(url)
+        }
     }
 
     @objc private func quitApp() {

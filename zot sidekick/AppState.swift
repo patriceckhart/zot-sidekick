@@ -360,29 +360,22 @@ final class AppState {
     // MARK: - Paste into active app
 
     func pasteResultIntoApp() {
-        guard let lastAssistant = messages.last(where: { $0.role == .assistant }) else {
-            print("[paste] no assistant message to paste")
-            return
-        }
+        guard let lastAssistant = messages.last(where: { $0.role == .assistant }) else { return }
         let text = lastAssistant.content
-        guard !text.isEmpty else {
-            print("[paste] assistant message is empty")
-            return
-        }
+        guard !text.isEmpty else { return }
 
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.setString(text, forType: .string)
-        print("[paste] copied \(text.count) chars to pasteboard")
 
-        let trusted = AXIsProcessTrusted()
-        print("[paste] AXIsProcessTrusted = \(trusted)")
-
-        guard let app = previousApp else {
-            print("[paste] previousApp is nil; cannot target an app")
+        guard AXIsProcessTrusted() else {
+            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+                NSWorkspace.shared.open(url)
+            }
             return
         }
-        print("[paste] target app: \(app.localizedName ?? "?") pid=\(app.processIdentifier)")
+
+        guard let app = previousApp else { return }
 
         // Resign active so our floating panel stops being the key/active app;
         // otherwise the target app can never become frontmost and the
@@ -396,21 +389,18 @@ final class AppState {
         Self.pasteWhenActive(app: app)
     }
 
-    /// Polls until `app` is the frontmost application (or a timeout), then
-    /// posts a synthetic Cmd+V into it.
+    /// Polls briefly until `app` is frontmost, then posts Cmd+V. Keep this
+    /// short: after the click, users expect the paste to happen immediately.
     private static func pasteWhenActive(app: NSRunningApplication, attempt: Int = 0) {
-        let front = NSWorkspace.shared.frontmostApplication
-        let isFront = front?.processIdentifier == app.processIdentifier
-        if isFront || attempt >= 30 {
-            print("[paste] posting Cmd+V (attempt \(attempt), front=\(front?.localizedName ?? "?"), isFront=\(isFront))")
-            // Give the app one more runloop tick to settle its first responder.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+        let isFront = NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier
+        if isFront || attempt >= 8 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.04) {
                 postCommandV()
             }
             return
         }
         app.activate(options: [.activateAllWindows])
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.025) {
             pasteWhenActive(app: app, attempt: attempt + 1)
         }
     }
@@ -421,17 +411,13 @@ final class AppState {
         let cmdDown = CGEvent(keyboardEventSource: nil, virtualKey: 0x37, keyDown: true) // Left Command
         let cmdUp = CGEvent(keyboardEventSource: nil, virtualKey: 0x37, keyDown: false)
         guard let keyDown = CGEvent(keyboardEventSource: nil, virtualKey: vKey, keyDown: true),
-              let keyUp = CGEvent(keyboardEventSource: nil, virtualKey: vKey, keyDown: false) else {
-            print("[paste] failed to create CGEvent")
-            return
-        }
+              let keyUp = CGEvent(keyboardEventSource: nil, virtualKey: vKey, keyDown: false) else { return }
         keyDown.flags = .maskCommand
         keyUp.flags = .maskCommand
         cmdDown?.post(tap: .cghidEventTap)
         keyDown.post(tap: .cghidEventTap)
         keyUp.post(tap: .cghidEventTap)
         cmdUp?.post(tap: .cghidEventTap)
-        print("[paste] Cmd+V posted to HID tap")
     }
 
     // MARK: - Message Handling
