@@ -362,23 +362,48 @@ final class AppState {
     func pasteResultIntoApp() {
         guard let lastAssistant = messages.last(where: { $0.role == .assistant }) else { return }
         let text = lastAssistant.content
+        guard !text.isEmpty else { return }
 
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.setString(text, forType: .string)
 
-        if let app = previousApp {
-            app.activate()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                let source = CGEventSource(stateID: .hidSystemState)
-                let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: true)
-                keyDown?.flags = .maskCommand
-                let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: false)
-                keyUp?.flags = .maskCommand
-                keyDown?.post(tap: .cghidEventTap)
-                keyUp?.post(tap: .cghidEventTap)
+        guard let app = previousApp else { return }
+
+        // Bring the target app (e.g. the browser) back to the front, then
+        // synthesize Cmd+V once it is actually frontmost. The panel must be
+        // hidden first (the caller does that) so it releases key focus.
+        app.activate(options: [.activateAllWindows])
+        Self.pasteWhenActive(app: app)
+    }
+
+    /// Polls until `app` is the frontmost application (or a timeout), then
+    /// posts a synthetic Cmd+V into it.
+    private static func pasteWhenActive(app: NSRunningApplication, attempt: Int = 0) {
+        let isFront = NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier
+        if isFront || attempt >= 20 {
+            // Give the app one more runloop tick to settle its first responder.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                postCommandV()
             }
+            return
         }
+        app.activate(options: [.activateAllWindows])
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            pasteWhenActive(app: app, attempt: attempt + 1)
+        }
+    }
+
+    /// Posts a Cmd+V key chord to the system event tap.
+    private static func postCommandV() {
+        let source = CGEventSource(stateID: .combinedSessionState)
+        let vKey: CGKeyCode = 0x09
+        guard let keyDown = CGEvent(keyboardEventSource: source, virtualKey: vKey, keyDown: true),
+              let keyUp = CGEvent(keyboardEventSource: source, virtualKey: vKey, keyDown: false) else { return }
+        keyDown.flags = .maskCommand
+        keyUp.flags = .maskCommand
+        keyDown.post(tap: .cgAnnotatedSessionEventTap)
+        keyUp.post(tap: .cgAnnotatedSessionEventTap)
     }
 
     // MARK: - Message Handling

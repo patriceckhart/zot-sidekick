@@ -238,8 +238,11 @@ struct PanelChatView: View {
                                     NSPasteboard.general.setString(message.content, forType: .string)
                                 },
                                 onPaste: {
-                                    appState.pasteResultIntoApp()
+                                    // Hide the panel first so it releases key
+                                    // focus, then activate the target app and
+                                    // paste into it.
                                     onClose()
+                                    appState.pasteResultIntoApp()
                                 }
                             )
                             .id(message.id)
