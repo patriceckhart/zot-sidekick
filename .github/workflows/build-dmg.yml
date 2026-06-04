@@ -16,6 +16,8 @@ jobs:
       SCHEME: "zot sidekick"
       APP_NAME: "zot sidekick"
       CONFIGURATION: Release
+      MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+      NOTARY_APPLE_ID: ${{ secrets.NOTARY_APPLE_ID }}
 
     steps:
       - name: Checkout
@@ -101,13 +103,58 @@ jobs:
             echo "prebuilt-icon/Assets.car not found; keeping the classic AppIcon." >&2
           fi
 
-      - name: Ad-hoc sign (so Gatekeeper does not flag a broken signature)
+      # Import a Developer ID Application certificate (if provided as secrets)
+      # into a temporary keychain so the app can be signed with a STABLE
+      # identity. A stable signature is what lets macOS remember the
+      # Accessibility (TCC) grant across updates, which is required for the
+      # global hotkey and the synthetic Cmd+V "Paste into" to work after
+      # installing a downloaded build.
+      - name: Import signing certificate
+        id: cert
+        if: env.MACOS_CERT_P12 != ''
+        env:
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          echo "$MACOS_CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | sed 's/"//g')
+          IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN" | grep "Developer ID Application" | head -1 | awk -F'"' '{print $2}')
+          echo "Signing identity: $IDENTITY"
+          echo "identity=$IDENTITY" >> "$GITHUB_OUTPUT"
+          echo "keychain=$KEYCHAIN" >> "$GITHUB_OUTPUT"
+          rm -f "$RUNNER_TEMP/cert.p12"
+
+      - name: Sign app
+        env:
+          IDENTITY: ${{ steps.cert.outputs.identity }}
         run: |
           set -euo pipefail
           APP_PATH="${{ steps.app.outputs.app_path }}"
-          # Deep ad-hoc sign, including the embedded zot binary.
-          codesign --force --deep --sign - "$APP_PATH"
-          codesign --verify --deep --verbose=2 "$APP_PATH" || true
+          if [ -n "${IDENTITY:-}" ]; then
+            echo "Signing with Developer ID: $IDENTITY"
+            # Sign inner binaries first (e.g. the embedded zot CLI), then the
+            # app bundle, with hardened runtime so the build can be notarized.
+            find "$APP_PATH/Contents" -type f \( -name "*.dylib" -o -perm -u+x \) -print0 2>/dev/null \
+              | while IFS= read -r -d '' f; do
+                  if file "$f" | grep -q "Mach-O"; then
+                    codesign --force --options runtime --timestamp --sign "$IDENTITY" "$f" || true
+                  fi
+                done
+            codesign --force --deep --options runtime --timestamp --sign "$IDENTITY" "$APP_PATH"
+            codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+          else
+            echo "No Developer ID secret set; falling back to ad-hoc signature."
+            echo "WARNING: ad-hoc builds re-prompt for Accessibility on every launch" >&2
+            echo "and cannot send synthetic keystrokes. Set MACOS_CERT_P12 to fix." >&2
+            codesign --force --deep --sign - "$APP_PATH"
+          fi
 
       - name: Create DMG with Applications symlink
         id: dmg
@@ -135,6 +182,25 @@ jobs:
 
           echo "dmg_name=$DMG_NAME" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      # Notarize and staple the DMG so Gatekeeper accepts it without a
+      # right-click "Open" dance. Requires an App Store Connect API key
+      # (or Apple ID) provided as secrets. Skipped when not configured.
+      - name: Notarize DMG
+        if: env.MACOS_CERT_P12 != '' && env.NOTARY_APPLE_ID != ''
+        env:
+          NOTARY_PASSWORD: ${{ secrets.NOTARY_PASSWORD }}
+          NOTARY_TEAM_ID: ${{ secrets.NOTARY_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          DMG="${{ steps.dmg.outputs.dmg_name }}"
+          xcrun notarytool submit "$DMG" \
+            --apple-id "$NOTARY_APPLE_ID" \
+            --password "$NOTARY_PASSWORD" \
+            --team-id "$NOTARY_TEAM_ID" \
+            --wait
+          xcrun stapler staple "$DMG"
+          xcrun stapler validate "$DMG"
 
       - name: Upload DMG artifact
         uses: actions/upload-artifact@v4
