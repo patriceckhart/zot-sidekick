@@ -20,16 +20,50 @@ final class HotkeyMonitor {
     private let onActivate: () -> Void
 
     private var hasFired = false
+    private var tapInstalled = false
+    private var trustTimer: Timer?
 
     init(onActivate: @escaping () -> Void) {
         self.onActivate = onActivate
     }
 
+    private var wasTrusted = false
+
     func start() {
+        wasTrusted = AXIsProcessTrusted()
+        installTap()
+        startFallbackMonitor()
+        // A tap created while untrusted is inert (receives no events). Poll
+        // for the trust state; when it flips, rebuild the tap so it actually
+        // delivers events without requiring a relaunch.
+        trustTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            let trusted = AXIsProcessTrusted()
+            if trusted != self.wasTrusted {
+                self.wasTrusted = trusted
+                self.teardownTap()
+                self.installTap()
+            }
+        }
+    }
+
+    private func teardownTap() {
+        if let tap = eventTap { CGEvent.tapEnable(tap: tap, enable: false) }
+        if let source = runLoopSource {
+            CFRunLoopRemoveSource(CFRunLoopGetCurrent(), source, .commonModes)
+        }
+        eventTap = nil
+        runLoopSource = nil
+        tapInstalled = false
+    }
+
+    private func installTap() {
+        guard !tapInstalled else { return }
+
         let eventMask = (1 << CGEventType.flagsChanged.rawValue) |
                         (1 << CGEventType.keyDown.rawValue)
 
-        let refcon = Unmanaged.passRetained(self).toOpaque()
+        let refcon = Unmanaged.passUnretained(self).toOpaque()
 
         guard let tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
@@ -39,8 +73,7 @@ final class HotkeyMonitor {
             callback: hotkeyCallback,
             userInfo: refcon
         ) else {
-            print("[hotkey] Failed to create event tap. Accessibility permission needed.")
-            startFallbackMonitor()
+            print("[hotkey] Event tap not created yet (Accessibility not granted).")
             return
         }
 
@@ -48,6 +81,7 @@ final class HotkeyMonitor {
         runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
         CFRunLoopAddSource(CFRunLoopGetCurrent(), runLoopSource, .commonModes)
         CGEvent.tapEnable(tap: tap, enable: true)
+        tapInstalled = true
         print("[hotkey] Event tap installed. Long-press Right Option to toggle the panel.")
     }
 
@@ -93,6 +127,12 @@ final class HotkeyMonitor {
     }
 
     func handleEvent(_ proxy: CGEventTapProxy, type: CGEventType, event: CGEvent) {
+        // The system disables a tap that is slow or after input; re-enable it.
+        if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            if let tap = eventTap { CGEvent.tapEnable(tap: tap, enable: true) }
+            return
+        }
+
         if type == .keyDown {
             otherKeyPressed = true
             return
@@ -135,6 +175,8 @@ final class HotkeyMonitor {
     }
 
     func stop() {
+        trustTimer?.invalidate()
+        trustTimer = nil
         if let tap = eventTap {
             CGEvent.tapEnable(tap: tap, enable: false)
         }
@@ -143,6 +185,7 @@ final class HotkeyMonitor {
         }
         eventTap = nil
         runLoopSource = nil
+        tapInstalled = false
 
         if let m = globalMonitor { NSEvent.removeMonitor(m) }
         if let m = localMonitor { NSEvent.removeMonitor(m) }
@@ -155,8 +198,8 @@ private func hotkeyCallback(
     event: CGEvent,
     refcon: UnsafeMutableRawPointer?
 ) -> Unmanaged<CGEvent>? {
-    guard let refcon = refcon else { return Unmanaged.passRetained(event) }
+    guard let refcon = refcon else { return Unmanaged.passUnretained(event) }
     let monitor = Unmanaged<HotkeyMonitor>.fromOpaque(refcon).takeUnretainedValue()
     monitor.handleEvent(proxy, type: type, event: event)
-    return Unmanaged.passRetained(event)
+    return Unmanaged.passUnretained(event)
 }
