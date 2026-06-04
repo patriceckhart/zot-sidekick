@@ -219,3 +219,74 @@ final class ZotBridge: @unchecked Sendable {
         }
     }
 }
+
+// MARK: - One-shot model fetch
+
+enum ZotModelFetcher {
+    /// Spawns a short-lived `zot rpc --provider <provider>`, requests the model
+    /// list, and returns the model ids. Runs off the main actor.
+    nonisolated static func fetchModels(
+        zotPath: String,
+        provider: String,
+        zotHome: String,
+        timeout: TimeInterval = 12
+    ) -> [String] {
+        let proc = Process()
+        let stdin = Pipe()
+        let stdout = Pipe()
+        proc.executableURL = URL(fileURLWithPath: zotPath)
+        proc.arguments = ["rpc", "--provider", provider]
+        proc.standardInput = stdin
+        proc.standardOutput = stdout
+        proc.standardError = Pipe()
+
+        var env = ProcessInfo.processInfo.environment
+        env["ZOT_HOME"] = zotHome
+        env["HOME"] = FileManager.default.homeDirectoryForCurrentUser.path
+        if env["PATH"] == nil || env["PATH"]?.isEmpty == true {
+            env["PATH"] = "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+        }
+        proc.environment = env
+
+        do { try proc.run() } catch { return [] }
+
+        // Ask for the model list.
+        let cmds = """
+        {"id":"hello","type":"hello"}
+        {"id":"m","type":"get_models"}
+        """ + "\n"
+        stdin.fileHandleForWriting.write(Data(cmds.utf8))
+
+        // Read until we see the get_models response or time out.
+        let deadline = Date().addingTimeInterval(timeout)
+        var buffer = ""
+        var result: [String] = []
+        let handle = stdout.fileHandleForReading
+
+        while Date() < deadline {
+            let chunk = handle.availableData
+            if chunk.isEmpty { break }
+            buffer += String(data: chunk, encoding: .utf8) ?? ""
+            var done = false
+            while let nl = buffer.range(of: "\n") {
+                let line = String(buffer[buffer.startIndex..<nl.lowerBound])
+                buffer = String(buffer[nl.upperBound...])
+                guard let d = line.data(using: .utf8),
+                      let json = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { continue }
+                if json["type"] as? String == "response",
+                   json["command"] as? String == "get_models" {
+                    if let data = json["data"] as? [String: Any],
+                       let models = data["models"] as? [[String: Any]] {
+                        result = models.compactMap { $0["id"] as? String }
+                    }
+                    done = true
+                    break
+                }
+            }
+            if done { break }
+        }
+
+        proc.terminate()
+        return result
+    }
+}

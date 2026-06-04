@@ -73,6 +73,21 @@ struct PanelChatView: View {
                 .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
         }
+        .overlay {
+            if showSessions {
+                SessionBrowserView(
+                    appState: appState,
+                    onSelect: { session in
+                        appState.loadSession(session)
+                        withAnimation(.easeInOut(duration: 0.18)) { showSessions = false }
+                    },
+                    onDismiss: {
+                        withAnimation(.easeInOut(duration: 0.18)) { showSessions = false }
+                    }
+                )
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
+        }
         .clipShape(RoundedRectangle(cornerRadius: 32))
         .environment(\.colorScheme, .dark)
         .onAppear {
@@ -81,16 +96,6 @@ struct PanelChatView: View {
         .onDrop(of: [.image, .pdf, .fileURL], isTargeted: $isDragOver) { providers in
             handleDrop(providers)
             return true
-        }
-        .sheet(isPresented: $showSessions) {
-            SessionBrowserView(
-                appState: appState,
-                onSelect: { session in
-                    appState.loadSession(session)
-                    showSessions = false
-                },
-                onDismiss: { showSessions = false }
-            )
         }
     }
 
@@ -113,7 +118,7 @@ struct PanelChatView: View {
 
             Button {
                 appState.reloadSavedSessions()
-                showSessions = true
+                withAnimation(.easeInOut(duration: 0.18)) { showSessions = true }
             } label: {
                 HStack(spacing: 4) {
                     Image(systemName: "clock.arrow.circlepath")
@@ -125,6 +130,29 @@ struct PanelChatView: View {
             }
             .buttonStyle(.plain)
             .help("Browse saved sessions")
+
+            // Small primary Update button when a newer app release exists.
+            if appState.appUpdater.updateAvailable, let latest = appState.appUpdater.latestVersion {
+                Button {
+                    if let url = appState.appUpdater.releaseURL {
+                        NSWorkspace.shared.open(url)
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.down.circle.fill")
+                            .font(.system(size: 10, design: .monospaced))
+                        Text("Update")
+                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(Color.blue.opacity(0.85))
+                    .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .help("zot sidekick \(latest) is available. Click to open the release.")
+            }
 
             if appState.updater.updateAvailable, let latest = appState.updater.latestVersion {
                 Button {
@@ -292,14 +320,22 @@ struct PanelChatView: View {
 
     private var modelSelector: some View {
         Menu {
-            ForEach(appState.availableModels) { model in
-                Button {
-                    appState.selectModel(model)
-                } label: {
-                    HStack {
-                        Text(model.displayName)
-                        if model.id == appState.selectedModel {
-                            Image(systemName: "checkmark")
+            // Group models by provider so all logged-in providers are shown.
+            ForEach(appState.providerOptions) { option in
+                let models = appState.availableModels.filter { $0.provider == option.id }
+                if !models.isEmpty {
+                    Section(option.displayName) {
+                        ForEach(models) { model in
+                            Button {
+                                appState.selectModel(model)
+                            } label: {
+                                HStack {
+                                    Text(model.displayName)
+                                    if model.id == appState.selectedModel && model.provider == appState.provider {
+                                        Image(systemName: "checkmark")
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -322,7 +358,7 @@ struct PanelChatView: View {
     }
 
     private var selectedModelDisplayName: String {
-        appState.availableModels.first(where: { $0.id == appState.selectedModel })?.displayName
+        appState.availableModels.first(where: { $0.id == appState.selectedModel && $0.provider == appState.provider })?.displayName
             ?? (appState.selectedModel.isEmpty ? "Loading..." : appState.selectedModel)
     }
 
@@ -589,19 +625,36 @@ struct SessionBrowserView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // Header (matches the inline settings view)
             HStack {
                 Text("Sessions")
-                    .font(.system(size: 16, weight: .semibold, design: .monospaced))
-                Spacer()
-                Text("\(appState.savedSessions.count) total")
+                    .font(.system(size: 14, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.9))
+                Text("\(appState.savedSessions.count)")
                     .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                Button("Done") { onDismiss() }
-                    .font(.system(size: 13, design: .monospaced))
-                    .keyboardShortcut(.defaultAction)
+                    .foregroundStyle(.white.opacity(0.4))
+                Spacer()
+                Button {
+                    onDismiss()
+                } label: {
+                    Text("Done")
+                        .font(.system(size: 12, weight: .medium, design: .monospaced))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 5)
+                        .background(Color.blue.opacity(0.8))
+                        .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .keyboardShortcut(.defaultAction)
             }
-            .padding()
+            .padding(.horizontal, 22)
+            .padding(.top, 18)
+            .padding(.bottom, 12)
 
+            Divider().overlay(Color.white.opacity(0.08))
+
+            // Search
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 12, design: .monospaced))
@@ -611,13 +664,12 @@ struct SessionBrowserView: View {
                     .font(.system(size: 13, design: .monospaced))
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .padding(.vertical, 9)
             .background(Color.white.opacity(0.06))
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-            .padding(.horizontal)
-            .padding(.bottom, 8)
-
-            Divider()
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .padding(.horizontal, 22)
+            .padding(.top, 14)
+            .padding(.bottom, 6)
 
             if filtered.isEmpty {
                 VStack(spacing: 8) {
@@ -632,16 +684,23 @@ struct SessionBrowserView: View {
                 }
             } else {
                 ScrollView {
-                    LazyVStack(spacing: 1) {
+                    LazyVStack(spacing: 6) {
                         ForEach(filtered) { session in
                             sessionRow(session)
                         }
                     }
-                    .padding(.vertical, 4)
+                    .padding(.horizontal, 22)
+                    .padding(.vertical, 8)
                 }
             }
         }
-        .frame(width: 600, height: 500)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: 32)
+                .fill(.ultraThinMaterial)
+                .overlay(RoundedRectangle(cornerRadius: 32).fill(Color.black.opacity(0.7)))
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 32))
         .environment(\.colorScheme, .dark)
     }
 
@@ -688,9 +747,10 @@ struct SessionBrowserView: View {
             .buttonStyle(.plain)
             .help("Delete session")
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .background(Color.white.opacity(0.03))
+        .background(Color.white.opacity(0.06))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
         .contentShape(Rectangle())
         .onTapGesture { onSelect(session) }
     }

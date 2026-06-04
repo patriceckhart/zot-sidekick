@@ -26,10 +26,12 @@ final class AppState {
     var availableModels: [ZotModel] = []
 
     struct ZotModel: Identifiable, Hashable {
-        let id: String
-        let name: String
-        let provider: String
+        let id: String          // model id
+        let name: String        // display name
+        let provider: String    // provider id this model belongs to
 
+        // Unique across providers (same model id can appear for two providers).
+        var uniqueKey: String { "\(provider)/\(id)" }
         var displayName: String { name }
     }
 
@@ -51,16 +53,26 @@ final class AppState {
         let displayName: String
         let supportsSubscription: Bool
         let oauthProvider: String? // provider key for the OAuth manager
+        let popularModels: [String]
+        /// The auth.json key this provider's credential is stored under.
+        var authKey: String { id == "openai-codex" ? "openai" : id }
     }
 
     let providerOptions: [ProviderOption] = [
-        .init(id: "anthropic", displayName: "Anthropic (Claude)", supportsSubscription: true, oauthProvider: "anthropic"),
-        .init(id: "openai", displayName: "OpenAI", supportsSubscription: false, oauthProvider: nil),
-        .init(id: "openai-codex", displayName: "ChatGPT Subscription", supportsSubscription: true, oauthProvider: "openai-codex"),
-        .init(id: "kimi", displayName: "Kimi", supportsSubscription: true, oauthProvider: "kimi"),
-        .init(id: "google", displayName: "Google Gemini", supportsSubscription: false, oauthProvider: nil),
-        .init(id: "deepseek", displayName: "DeepSeek", supportsSubscription: false, oauthProvider: nil),
-        .init(id: "ollama", displayName: "Ollama", supportsSubscription: false, oauthProvider: nil)
+        .init(id: "anthropic", displayName: "Anthropic (Claude)", supportsSubscription: true, oauthProvider: "anthropic",
+              popularModels: ["claude-sonnet-4-5", "claude-opus-4-1", "claude-opus-4-0", "claude-sonnet-4-0", "claude-haiku-4-5", "claude-3-7-sonnet-20250219", "claude-3-5-sonnet-20241022", "claude-3-5-haiku-latest", "claude-3-opus-20240229", "claude-opus-4-5"]),
+        .init(id: "openai", displayName: "OpenAI", supportsSubscription: false, oauthProvider: nil,
+              popularModels: ["gpt-5", "gpt-5-mini", "gpt-5-nano", "gpt-4.1", "gpt-4.1-mini", "gpt-4o", "gpt-4o-mini", "o4-mini", "o3", "o3-mini"]),
+        .init(id: "openai-codex", displayName: "ChatGPT Subscription", supportsSubscription: true, oauthProvider: "openai-codex",
+              popularModels: ["gpt-5.2", "gpt-5.3-codex", "gpt-5.3-codex-spark", "gpt-5.4", "gpt-5.4-mini", "gpt-5.5", "gpt-5.5-mini"]),
+        .init(id: "kimi", displayName: "Kimi", supportsSubscription: true, oauthProvider: "kimi",
+              popularModels: ["kimi-for-coding"]),
+        .init(id: "google", displayName: "Google Gemini", supportsSubscription: false, oauthProvider: nil,
+              popularModels: ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"]),
+        .init(id: "deepseek", displayName: "DeepSeek", supportsSubscription: false, oauthProvider: nil,
+              popularModels: ["deepseek-v4-pro", "deepseek-v4-flash"]),
+        .init(id: "ollama", displayName: "Ollama", supportsSubscription: false, oauthProvider: nil,
+              popularModels: [])
     ]
 
     // MARK: - Paste mode
@@ -72,6 +84,8 @@ final class AppState {
 
     // MARK: - Updater
     let updater = ZotUpdater()
+    /// Checks for new releases of this app (zot sidekick) itself.
+    let appUpdater = AppUpdater()
 
     // MARK: - Sessions
     private let sessionStore = SessionStore()
@@ -87,6 +101,9 @@ final class AppState {
         startBridge()
         updater.refreshInstalledVersion()
         updater.checkForUpdate()
+        appUpdater.checkForUpdate()
+        rebuildModelList()
+        refreshAllModels()
         reloadSavedSessions()
         // When the updater installs a newer binary, re-point and restart.
         updater.onInstalled = { [weak self] newPath, _ in
@@ -171,6 +188,8 @@ final class AppState {
             loginStatus = "API key saved."
             saveSettings()
             restartBridge()
+            rebuildModelList()
+            refreshAllModels()
         } catch {
             loginStatus = "Failed to save API key: \(error.localizedDescription)"
         }
@@ -185,6 +204,8 @@ final class AppState {
             if message.lowercased().contains("logged in") || message.lowercased().contains("configured") {
                 self?.saveSettings()
                 self?.restartBridge()
+                self?.rebuildModelList()
+                self?.refreshAllModels()
             }
         }
     }
@@ -194,7 +215,10 @@ final class AppState {
         try? authStore.removeProvider(provider)
         apiKey = ""
         loginStatus = "Signed out."
+        liveModelsByProvider[provider] = nil
         restartBridge()
+        rebuildModelList()
+        refreshAllModels()
     }
 
     // MARK: - Bridge Lifecycle
@@ -451,15 +475,15 @@ final class AppState {
                 print("[appstate] failed to get models: \(event.errorText ?? "unknown")")
                 return
             }
-            availableModels = models.compactMap { dict in
+            // Live models for the currently connected provider. Merge them
+            // with the static lists from the other authenticated providers.
+            let live: [ZotModel] = models.compactMap { dict in
                 guard let id = dict["id"] as? String else { return nil }
                 let name = (dict["name"] as? String) ?? id
                 return ZotModel(id: id, name: name, provider: provider)
             }
-            if selectedModel.isEmpty, let first = availableModels.first {
-                selectedModel = first.id
-            }
-            print("[appstate] loaded \(availableModels.count) models")
+            rebuildModelList(liveForCurrentProvider: live)
+            print("[appstate] loaded \(availableModels.count) models across providers")
 
         case "hello":
             // Initial handshake. Pull the model list now that we're connected.
@@ -475,10 +499,77 @@ final class AppState {
         }
     }
 
+    /// Whether a specific provider option is logged in. The OpenAI pair
+    /// shares one auth.json key, so distinguish them by method:
+    ///   - "openai-codex" (ChatGPT subscription) requires an oauth entry,
+    ///   - "openai" (API) requires an api_key entry.
+    func isAuthenticated(_ option: ProviderOption) -> Bool {
+        let status = authStore.authStatus(for: option.id)
+        switch option.id {
+        case "openai-codex": return status == .subscription
+        case "openai":       return status == .apiKey
+        default:             return status != .none
+        }
+    }
+
+    /// Providers the user is logged into (api key or subscription).
+    func authenticatedProviders() -> [ProviderOption] {
+        providerOptions.filter { isAuthenticated($0) }
+    }
+
+    /// Live model ids fetched per provider (provider id -> [model id]).
+    private var liveModelsByProvider: [String: [String]] = [:]
+
+    /// Builds availableModels from every authenticated provider, using live
+    /// models if we have fetched them, otherwise the known popular list.
+    func rebuildModelList(liveForCurrentProvider live: [ZotModel] = []) {
+        if !live.isEmpty {
+            liveModelsByProvider[provider] = live.map { $0.id }
+        }
+        var result: [ZotModel] = []
+        for option in authenticatedProviders() {
+            let ids = liveModelsByProvider[option.id] ?? option.popularModels
+            result.append(contentsOf: ids.map { ZotModel(id: $0, name: $0, provider: option.id) })
+        }
+        var seen = Set<String>()
+        availableModels = result.filter { seen.insert($0.uniqueKey).inserted }
+
+        if selectedModel.isEmpty, let first = availableModels.first {
+            selectedModel = first.id
+            provider = first.provider
+        }
+    }
+
+    /// Fetches the full live model list for every authenticated provider via
+    /// short-lived one-shot RPC processes, then rebuilds the menu.
+    func refreshAllModels() {
+        let path = zotPath
+        let home = SidekickPaths.zotHome.path
+        let providers = authenticatedProviders().map { $0.id }
+        Task.detached {
+            var fetched: [String: [String]] = [:]
+            for p in providers {
+                let ids = ZotModelFetcher.fetchModels(zotPath: path, provider: p, zotHome: home)
+                if !ids.isEmpty { fetched[p] = ids }
+            }
+            await MainActor.run {
+                for (p, ids) in fetched { self.liveModelsByProvider[p] = ids }
+                self.rebuildModelList()
+            }
+        }
+    }
+
     func selectModel(_ model: ZotModel) {
+        let providerChanged = model.provider != provider
         selectedModel = model.id
-        bridge?.setModel(model.id)
+        provider = model.provider
         saveSettings()
+        if providerChanged {
+            // Switching provider means a new bridge with the right credential.
+            restartBridgeKeepingMessages()
+        } else {
+            bridge?.setModel(model.id)
+        }
     }
 }
 

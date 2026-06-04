@@ -2,6 +2,8 @@
 
 A macOS menu bar app that provides quick access to zot from anywhere on your system.
 
+![zot sidekick preview](docs/preview.png)
+
 ## Features
 
 - **Menu Bar Integration**: Lives in your menu bar for quick access
@@ -25,7 +27,17 @@ The `zot` binary is **baked into the app bundle**, downloaded from the
 [official GitHub releases](https://github.com/patriceckhart/zot). No separate
 zot install is required, and the app never uses any zot on your system PATH.
 
-## Updates (in-app, native Swift)
+## Updates
+
+### App updates
+
+On launch the app checks the
+[zot-sidekick releases](https://github.com/patriceckhart/zot-sidekick/releases)
+and compares the latest tag with its own version (`AppUpdater.swift`). When a
+newer release exists, a small primary "Update" button appears in the panel top
+bar (after Settings and Sessions) that opens the latest release page.
+
+### Bundled zot binary updates (in-app, native Swift)
 
 The app manages its own copy of the zot binary in Application Support and
 updates it entirely in Swift (`ZotUpdater.swift`):
@@ -75,7 +87,7 @@ It resets to the default centered position only when you quit and relaunch.
 ### Working Directory
 
 - Click the folder icon in the input bar to set a working directory
-- Zot will use this directory as context for file operations
+- zot will use this directory as context for file operations
 
 ### Sessions
 
@@ -92,7 +104,7 @@ It resets to the default centered position only when you quit and relaunch.
   - Provider (Anthropic, OpenAI, ChatGPT Subscription, Kimi, Google, DeepSeek, Ollama)
   - Authentication: either a subscription login or an API key
   - Default Model
-  - Zot binary version, with a primary "Check for Updates" / "Update zot" button
+  - zot binary version, with a primary "Check for Updates" / "Update zot" button
 
 ### Subscription Login
 
@@ -107,6 +119,13 @@ Tokens are written to the bundled binary's `ZOT_HOME/auth.json`, so the
 embedded zot uses your subscription with no extra setup. API keys are stored
 the same way. Use "Sign Out" to remove stored credentials for a provider.
 
+### Models across providers
+
+The model picker shows models from every provider you are logged into, grouped
+by provider. The full live model list per provider is fetched via a one-shot
+`zot rpc` query (`ZotModelFetcher`). Choosing a model from a different provider
+switches the active provider and restarts the bridge with its credentials.
+
 ## Architecture
 
 
@@ -118,7 +137,9 @@ the same way. Use "Sign Out" to remove stored credentials for a provider.
 - **ZotBridge**: Spawns and communicates with the bundled `zot rpc` process via JSON-RPC
 - **SessionStore**: Flat-file JSON persistence for sessions (no project folders)
 - **ZotAuth / ZotOAuthLogin**: API keys and subscription OAuth, written to `ZOT_HOME/auth.json`
-- **ZotUpdater**: GitHub release checks and in-Swift download/install of the binary
+- **ZotUpdater**: GitHub release checks and in-Swift download/install of the bundled zot binary
+- **AppUpdater**: Checks zot-sidekick releases and surfaces the in-app "Update" button
+- **ZotModelFetcher**: One-shot RPC that fetches the full live model list per authenticated provider
 - **SettingsWindow**: A standalone settings window (legacy fallback; the inline panel settings are the primary path)
 
 ## Development
@@ -150,7 +171,7 @@ the latest Xcode) on every push and on manual dispatch. It:
 - auto-versions each build from the run number with rollover
   (`0.0.1 ... 0.0.99 -> 0.1.0 ... 0.99.99 -> 1.0.0 ...`),
 - ad-hoc signs the app (including the embedded zot binary),
-- packages a `Zot-Sidekick-<version>.dmg` containing the app and an
+- packages a `zot-sidekick-<version>.dmg` containing the app and an
   `Applications` symlink for drag-and-drop install,
 - uploads the DMG as a build artifact, and publishes a GitHub Release
   (tag `vX.Y.Z`, marked as latest) on every push to `main`.
