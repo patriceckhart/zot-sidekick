@@ -30,18 +30,24 @@ final class HotkeyMonitor {
     private var wasTrusted = false
 
     func start() {
+        stop()
         wasTrusted = AXIsProcessTrusted()
-        installTap()
-        startFallbackMonitor()
-        // A tap created while untrusted is inert (receives no events). Poll
-        // for the trust state; when it flips, rebuild the tap so it actually
-        // delivers events without requiring a relaunch.
-        trustTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            guard let self else { return }
-            let trusted = AXIsProcessTrusted()
-            if trusted != self.wasTrusted {
-                self.wasTrusted = trusted
-                self.teardownTap()
+
+        if wasTrusted {
+            installTap()
+        } else {
+            startFallbackMonitor()
+            // Poll only while untrusted. Once trust flips and the CGEvent tap
+            // installs, stop the timer and remove fallback monitors. Running
+            // both paths at once causes duplicate input processing and can peg
+            // CPU on macOS menu-bar apps.
+            trustTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+                guard let self else { return }
+                guard AXIsProcessTrusted() else { return }
+                self.wasTrusted = true
+                self.trustTimer?.invalidate()
+                self.trustTimer = nil
+                self.stopFallbackMonitor()
                 self.installTap()
             }
         }
@@ -87,8 +93,10 @@ final class HotkeyMonitor {
 
     private var globalMonitor: Any?
     private var localMonitor: Any?
+    private var keyDownMonitor: Any?
 
     private func startFallbackMonitor() {
+        guard globalMonitor == nil, localMonitor == nil, keyDownMonitor == nil else { return }
         print("[hotkey] Using fallback NSEvent monitor")
 
         globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
@@ -98,10 +106,18 @@ final class HotkeyMonitor {
             self?.handleFlagsChanged(event)
             return event
         }
-
-        NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] _ in
+        keyDownMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] _ in
             self?.otherKeyPressed = true
         }
+    }
+
+    private func stopFallbackMonitor() {
+        if let m = globalMonitor { NSEvent.removeMonitor(m) }
+        if let m = localMonitor { NSEvent.removeMonitor(m) }
+        if let m = keyDownMonitor { NSEvent.removeMonitor(m) }
+        globalMonitor = nil
+        localMonitor = nil
+        keyDownMonitor = nil
     }
 
     private func handleFlagsChanged(_ event: NSEvent) {
@@ -187,8 +203,7 @@ final class HotkeyMonitor {
         runLoopSource = nil
         tapInstalled = false
 
-        if let m = globalMonitor { NSEvent.removeMonitor(m) }
-        if let m = localMonitor { NSEvent.removeMonitor(m) }
+        stopFallbackMonitor()
     }
 }
 
