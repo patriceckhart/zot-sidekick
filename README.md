@@ -2,7 +2,13 @@
 
 A macOS menu bar app that provides quick access to zot from anywhere on your system.
 
-![zot sidekick preview](docs/preview.png)
+**Let zot sidekick whip up your emails:**
+
+![zot sidekick preview gmail](docs/preview-1.png)
+
+**Let zot sidekick give your code a glow-up:**
+
+![zot sidekick preview vscode](docs/preview-2.png)
 
 ## Features
 
@@ -62,7 +68,7 @@ affect the in-app update path.
 
 1. Open `zot sidekick.xcodeproj` in Xcode
 2. Build and run (Cmd+R)
-3. Grant accessibility (for the global hotkey) and screen recording permissions when prompted
+3. Grant Accessibility (for the global hotkey and "Paste into") via the menu bar icon's right-click menu ("Open Accessibility Settings"); Screen Recording is requested lazily the first time you take a screenshot
 4. Open the panel and click the gear (Settings) in the top bar to configure authentication
 
 ## Usage
@@ -170,15 +176,17 @@ the latest Xcode) on every push and on manual dispatch. It:
 
 - auto-versions each build from the run number with rollover
   (`0.0.1 ... 0.0.99 -> 0.1.0 ... 0.99.99 -> 1.0.0 ...`),
-- ad-hoc signs the app (including the embedded zot binary),
+- signs the app (including the embedded zot binary) with a Developer ID
+  certificate and hardened runtime, then notarizes and staples the DMG,
 - packages a `zot-sidekick-<version>.dmg` containing the app and an
   `Applications` symlink for drag-and-drop install,
 - uploads the DMG as a build artifact, and publishes a GitHub Release
   (tag `vX.Y.Z`, marked as latest) on every push to `main`.
 
-The builds are unsigned/ad-hoc, so on first launch users may need to
-right-click the app and choose Open (or allow it in System Settings) until a
-Developer ID signature and notarization are added.
+Releases are notarized Developer ID builds, so they launch without Gatekeeper
+warnings. If the signing secrets are absent, the workflow falls back to an
+ad-hoc signature; such builds require a right-click "Open" on first launch and
+re-prompt for Accessibility on every launch.
 
 ## Distribution
 
